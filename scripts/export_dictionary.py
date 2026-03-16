@@ -127,36 +127,50 @@ def navigate_to_dictionary(ws):
 
 
 def collect_words_from_dom(ws):
-    """Collect visible dictionary words from the DOM."""
+    """Collect visible dictionary words from the DOM.
+
+    使用精准 DOM 定位：只在滚动容器内采集，按元素类型过滤 UI 文本。
+    避免全页面 skip set 误杀合法词条（如 "All", "Edit", "Home"）。
+    """
     result = evaluate(ws, """
     (() => {
-        const skip = new Set([
-            'Pro Trial','Home','History','Dictionary','Get mobile app',
-            'Upgrade','New word','All','Auto-added','Manually-added',
-            'Search','Added manually','Edit','Delete','No words yet',
-            'Upgrade to Typeless Pro before your trial ends',
-            'Typeless remembers your unique names and words, learned automatically from your edits or added manually by you.',
-            'Typeless automatically learns your unique names and words from your edits and adds them to your personal dictionary.',
-            'You can manually add your unique names and words to your personal dictionary.'
-        ]);
-        const words = new Set();
-        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
-        while (walker.nextNode()) {
-            const t = walker.currentNode.textContent.trim();
-            if (t && t.length > 0 && t.length < 200
-                && !skip.has(t)
-                && !/^\\d+ of \\d+ days/.test(t)
-                && !/^Version/.test(t)
-                && !/^v\\d+\\./.test(t)
-                && !/^Check for/.test(t)
-                && !/^Save \\d+%/.test(t)) {
-                words.add(t);
+        // 定位词典列表的滚动容器（与 export_words 滚动逻辑一致）
+        let container = null;
+        document.querySelectorAll('div').forEach(d => {
+            if (d.scrollHeight > d.clientHeight && d.clientHeight > 100
+                && d.scrollHeight > 300) {
+                container = d;
             }
+        });
+        if (!container) container = document.body;
+
+        // 词条旁的元数据标签（非用户词汇，是 UI 显示的分类标签）
+        const metaLabels = new Set(['Added manually', 'Auto-added', 'Manually-added']);
+
+        const words = new Set();
+        const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null, false);
+        while (walker.nextNode()) {
+            const node = walker.currentNode;
+            const t = node.textContent.trim();
+            if (!t || t.length === 0 || t.length > 200) continue;
+            // 跳过按钮内的文本（Edit, Delete, New word 等交互元素）
+            const el = node.parentElement;
+            if (el && (el.tagName === 'BUTTON' || el.closest('button'))) continue;
+            // 跳过词条元数据标签
+            if (metaLabels.has(t)) continue;
+            words.add(t);
         }
         return JSON.stringify([...words]);
     })();
     """)
-    return set(json.loads(result)) if result and not result.startswith('JS_ERROR') else set()
+    if not result or not isinstance(result, str):
+        return set()
+    if result.startswith(('JS_ERROR', 'RECV_ERROR', 'PARSE_ERROR', 'TIMEOUT')):
+        return set()
+    try:
+        return set(json.loads(result))
+    except (json.JSONDecodeError, TypeError):
+        return set()
 
 
 def export_words(ws):
