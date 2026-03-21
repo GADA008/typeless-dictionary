@@ -1,6 +1,6 @@
 ---
 name: typeless-dictionary
-description: Manage Typeless voice input dictionary — export words from one account and import into another. Use when asked to add words to Typeless, export/backup Typeless dictionary, migrate dictionary between Typeless accounts, or manage custom vocabulary for voice input. Triggers on "Typeless dictionary", "add words to Typeless", "export Typeless words", "voice input dictionary".
+description: Manage Typeless voice input dictionary — export words from one account and import into another. Use when asked to add words to Typeless, export or backup the Typeless dictionary, migrate or sync dictionary between Typeless accounts, transfer custom vocabulary, or manage voice input word lists. Covers scenarios like "add these words to Typeless", "export my Typeless dictionary", "move my Typeless words to a new account", "backup voice input dictionary".
 ---
 
 # Typeless Dictionary Manager
@@ -38,9 +38,11 @@ python3 scripts/import_dictionary.py --words "Claude" "明子玉" # inline
 python3 scripts/import_dictionary.py words.json --dry-run     # preview
 python3 scripts/import_dictionary.py words.json --resume      # resume interrupted
 python3 scripts/import_dictionary.py words.json --verify      # verify after import
+python3 scripts/import_dictionary.py words.json --delay 0.5   # extra delay between words
+python3 scripts/import_dictionary.py --clear-progress          # clear resume state
 ```
 
-Progress saved to `/tmp/typeless_import_progress.json`. Use `--resume` to skip completed words.
+Progress saved to `/tmp/typeless_import_progress.json`. Use `--resume` to skip completed words. Import prompts for confirmation before starting.
 
 ## ⚠️ Three Critical Rules (Import)
 

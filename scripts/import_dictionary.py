@@ -30,6 +30,38 @@ import os
 PROGRESS_FILE = "/tmp/typeless_import_progress.json"
 
 
+def save_clipboard():
+    """保存当前剪贴板内容（仅纯文本）。"""
+    try:
+        r = subprocess.run(['pbpaste'], capture_output=True, text=True, timeout=5)
+        return r.stdout if r.returncode == 0 else None
+    except Exception:
+        return None
+
+
+def restore_clipboard(content):
+    """恢复剪贴板内容。"""
+    if content is not None:
+        try:
+            subprocess.run(['pbcopy'], input=content.encode('utf-8'),
+                           capture_output=True, timeout=5)
+        except Exception:
+            pass
+
+
+def move_to_trash(filepath):
+    """将文件移到废纸篓（macOS Finder），而非直接删除。"""
+    try:
+        subprocess.run(
+            ['osascript', '-e',
+             f'tell application "Finder" to delete POSIX file "{filepath}"'],
+            capture_output=True, timeout=10)
+    except Exception:
+        # 回退：直接删除（/tmp 文件风险低）
+        if os.path.exists(filepath):
+            os.remove(filepath)
+
+
 def osascript(script):
     """Run AppleScript and return stdout."""
     r = subprocess.run(['osascript', '-e', script], capture_output=True, text=True, timeout=20)
@@ -295,7 +327,7 @@ def main():
 
     if args.clear_progress:
         if os.path.exists(PROGRESS_FILE):
-            os.remove(PROGRESS_FILE)
+            move_to_trash(PROGRESS_FILE)
             print("Progress cleared.")
         return
 
@@ -333,39 +365,52 @@ def main():
         print("Nothing to import.")
         return
 
+    # 确认提示（非 dry-run 模式）
+    confirm = input(f"About to import {len(words)} words. Continue? [y/N] ").strip().lower()
+    if confirm not in ('y', 'yes'):
+        print("Cancelled.")
+        return
+
     # Ensure Dictionary page
     ensure_dictionary_page()
     time.sleep(0.5)
 
-    # Import
+    # 保存原始剪贴板内容
+    original_clipboard = save_clipboard()
+
+    # Import（try/finally 保证 Ctrl+C 时也能保存进度并恢复剪贴板）
     success = 0
     duplicates = 0
     errors = []
     imported = load_progress() if args.resume else set()
 
-    for i, word in enumerate(words):
-        result = add_word(word)
-        if result == "OK":
-            success += 1
-            imported.add(word)
-            print(f"[{i+1}/{len(words)}] ✅ {word}")
-        elif result == "DUPLICATE_OR_ERROR":
-            duplicates += 1
-            imported.add(word)  # Mark as done even if duplicate
-            print(f"[{i+1}/{len(words)}] ⏭️  {word} (duplicate/exists)")
-        else:
-            errors.append((word, result))
-            print(f"[{i+1}/{len(words)}] ❌ {word} — {result}")
+    try:
+        for i, word in enumerate(words):
+            result = add_word(word)
+            if result == "OK":
+                success += 1
+                imported.add(word)
+                print(f"[{i+1}/{len(words)}] ✅ {word}")
+            elif result == "DUPLICATE_OR_ERROR":
+                duplicates += 1
+                imported.add(word)  # Mark as done even if duplicate
+                print(f"[{i+1}/{len(words)}] ⏭️  {word} (duplicate/exists)")
+            else:
+                errors.append((word, result))
+                print(f"[{i+1}/{len(words)}] ❌ {word} — {result}")
 
-        # Save progress periodically
-        if (i + 1) % 10 == 0:
-            save_progress(imported)
+            # Save progress periodically
+            if (i + 1) % 10 == 0:
+                save_progress(imported)
 
-        if args.delay > 0:
-            time.sleep(args.delay)
-
-    # Final progress save
-    save_progress(imported)
+            if args.delay > 0:
+                time.sleep(args.delay)
+    except KeyboardInterrupt:
+        print("\n\nInterrupted! Saving progress...")
+    finally:
+        # 无论正常结束还是中断，都保存进度并恢复剪贴板
+        save_progress(imported)
+        restore_clipboard(original_clipboard)
 
     print(f"\nResults: {success} added, {duplicates} duplicates, {len(errors)} errors")
     if errors:
@@ -384,7 +429,7 @@ def main():
 
     # Cleanup progress on full success
     if not errors and os.path.exists(PROGRESS_FILE):
-        os.remove(PROGRESS_FILE)
+        move_to_trash(PROGRESS_FILE)
         print("Progress file cleaned up.")
 
 
